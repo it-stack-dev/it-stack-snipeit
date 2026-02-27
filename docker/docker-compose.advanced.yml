@@ -1,0 +1,34 @@
+# Lab 03 — Advanced Features: snipeit with TLS, resource limits, logging
+---
+services:
+  snipeit:
+    image: snipe/snipe-it:latest
+    container_name: it-stack-snipeit
+    restart: unless-stopped
+    ports:
+      - "80:$firstPort"
+    environment:
+      - IT_STACK_ENV=lab-03-advanced
+      - TLS_ENABLED=true
+    volumes:
+      - snipeit_data:/var/lib/snipeit
+      - ./certs:/etc/ssl/certs:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: G
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    networks:
+      - it-stack-net
+
+networks:
+  it-stack-net:
+    driver: bridge
+
+volumes:
+  snipeit_data:

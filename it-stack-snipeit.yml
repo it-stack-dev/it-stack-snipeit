@@ -1,0 +1,57 @@
+# it-stack-snipeit.yml — IT-Stack Module Manifest
+# Module 16: Snipe-IT IT asset management
+
+module:
+  name: snipeit
+  number: "16"
+  repo: it-stack-dev/it-stack-snipeit
+  version: "0.1.0"
+  phase: 4
+  category: it-management
+  server: lab-mgmt1
+  description: "Snipe-IT IT asset management"
+
+upstream:
+  name: Snipe-IT
+  image: snipe/snipe-it:latest
+  license: AGPL-3.0
+
+ports:
+  - 80 (HTTP)
+   - 443 (HTTPS)
+
+labs:
+  - id: "16-01"
+    name: Standalone
+    docker_compose: docker/docker-compose.standalone.yml
+    test_script: tests/labs/test-lab-16-01.sh
+  - id: "16-02"
+    name: External Dependencies
+    docker_compose: docker/docker-compose.lan.yml
+    test_script: tests/labs/test-lab-16-02.sh
+  - id: "16-03"
+    name: Advanced Features
+    docker_compose: docker/docker-compose.advanced.yml
+    test_script: tests/labs/test-lab-16-03.sh
+  - id: "16-04"
+    name: SSO Integration
+    docker_compose: docker/docker-compose.sso.yml
+    test_script: tests/labs/test-lab-16-04.sh
+  - id: "16-05"
+    name: Advanced Integration
+    docker_compose: docker/docker-compose.integration.yml
+    test_script: tests/labs/test-lab-16-05.sh
+  - id: "16-06"
+    name: Production Deployment
+    docker_compose: docker/docker-compose.production.yml
+    test_script: tests/labs/test-lab-16-06.sh
+
+resources:
+  cpu_cores: 2
+  ram_gb: 2
+  disk_gb: 20
+
+health_check:
+  endpoint: /health
+  metrics_endpoint: /metrics
+  log_path: /var/log/snipeit/
