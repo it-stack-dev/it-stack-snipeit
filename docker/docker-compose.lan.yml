@@ -1,36 +1,90 @@
-# Lab 02 — External Dependencies: snipeit with external PostgreSQL and Redis
+# Lab 02 — External Dependencies: Snipe-IT with external MariaDB and Mailhog
+# Models the LAN tier: MariaDB on data-net (simulates lab-db1), app on app-net.
+# Snipe-IT: http://localhost:8411
+# Mailhog:  http://localhost:8711
 ---
+name: it-stack-snipeit-lab02
+
 services:
-  snipeit:
-    image: snipe/snipe-it:latest
-    container_name: it-stack-snipeit
+
+  # ── External Database (simulates lab-db1) ─────────────────────────────────
+  snipeit-l02-db:
+    image: mariadb:10.11
+    container_name: snipeit-l02-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: RootLab02!
+      MARIADB_DATABASE: snipeit
+      MARIADB_USER: snipeit
+      MARIADB_PASSWORD: SnipeLab02!
+    volumes:
+      - snipeit-l02-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - snipeit-l02-data-net
+
+  # ── External SMTP relay (Mailhog) ─────────────────────────────────────────
+  snipeit-l02-mail:
+    image: mailhog/mailhog:latest
+    container_name: snipeit-l02-mail
     restart: unless-stopped
     ports:
-      - "80:$firstPort"
-    environment:
-      - IT_STACK_ENV=lab-02-lan
-      - DB_HOST=
-      - DB_PORT=5432
-      - REDIS_HOST=
+      - "8711:8025"
     networks:
-      - it-stack-net
+      - snipeit-l02-app-net
 
-  # Lightweight local DB for lab (replace with lab-db1 in real env)
-  postgres:
-    image: postgres:16
-    container_name: it-stack-snipeit-db
+  # ── Snipe-IT application ───────────────────────────────────────────────────
+  snipeit-l02-app:
+    image: snipe/snipe-it:latest
+    container_name: snipeit-l02-app
+    restart: unless-stopped
+    depends_on:
+      snipeit-l02-db:
+        condition: service_healthy
+      snipeit-l02-mail:
+        condition: service_started
     environment:
-      POSTGRES_DB: snipeit_db
-      POSTGRES_USER: snipeit_user
-      POSTGRES_PASSWORD: snipeit_pass
+      APP_ENV: local
+      APP_DEBUG: "false"
+      APP_KEY: "base64:3HLPbBKd9G4zWPKnQLxh4OTCKNWCGbSZFGbpfbpHPqk="
+      APP_URL: "http://localhost:8411"
+      DB_CONNECTION: mysql
+      DB_HOST: snipeit-l02-db
+      DB_PORT: "3306"
+      DB_DATABASE: snipeit
+      DB_USERNAME: snipeit
+      DB_PASSWORD: SnipeLab02!
+      MAIL_DRIVER: smtp
+      MAIL_HOST: snipeit-l02-mail
+      MAIL_PORT: "1025"
+      MAIL_ENCRYPTION: "null"
+      SESSION_DRIVER: file
+      CACHE_DRIVER: file
+    ports:
+      - "8411:80"
     volumes:
-      - snipeit_pg_data:/var/lib/postgresql/data
+      - snipeit-l02-data:/var/lib/snipeit
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 8
+      start_period: 120s
     networks:
-      - it-stack-net
+      - snipeit-l02-data-net
+      - snipeit-l02-app-net
 
 networks:
-  it-stack-net:
+  snipeit-l02-data-net:
+    driver: bridge
+  snipeit-l02-app-net:
     driver: bridge
 
 volumes:
-  snipeit_pg_data:
+  snipeit-l02-db-data:
+  snipeit-l02-data:
