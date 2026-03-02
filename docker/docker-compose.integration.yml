@@ -1,26 +1,211 @@
-# Lab 05 — Advanced Integration: snipeit with full IT-Stack ecosystem
----
+# =============================================================================
+# IT-Stack: Snipe-IT — Lab 05: Advanced Integration
+# Module 16 · Phase 4 · Lab 05
+# =============================================================================
+# Services: MariaDB · OpenLDAP · Keycloak · WireMock (Odoo-mock) · Mailhog · Snipe-IT
+# Ports:    App:8441  WireMock:8762  KC:8541  LDAP:3886  MH:8741
+# Credentials:
+#   DB root:  RootLab05!  app: snipeit / SnipeLab05!
+#   Keycloak: admin / Admin05!
+#   LDAP:     cn=admin,dc=lab,dc=local / LdapLab05!
+# What's new vs Lab 04:
+#   + WireMock 3.x simulates Odoo REST API (asset procurement flow)
+#   + Snipe-IT configured with ODOO_URL for asset sync
+#   + Integration tested: Snipe-IT → Odoo asset procurement REST API
+# =============================================================================
+
+name: it-stack-snipeit-lab05
+
 services:
-  snipeit:
-    image: snipe/snipe-it:latest
-    container_name: it-stack-snipeit
+
+  # ── MariaDB ────────────────────────────────────────────────────────────────
+  snipeit-i05-db:
+    image: mariadb:10.11
+    container_name: snipeit-i05-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: RootLab05!
+      MYSQL_DATABASE: snipeit
+      MYSQL_USER: snipeit
+      MYSQL_PASSWORD: SnipeLab05!
+    volumes:
+      - snipeit-i05-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-pRootLab05!", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks:
+      - snipeit-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  # ── OpenLDAP ───────────────────────────────────────────────────────────────
+  snipeit-i05-ldap:
+    image: osixia/openldap:1.5.0
+    container_name: snipeit-i05-ldap
+    restart: unless-stopped
+    environment:
+      LDAP_ORGANISATION: "IT-Stack Lab"
+      LDAP_DOMAIN: lab.local
+      LDAP_ADMIN_PASSWORD: LdapLab05!
+      LDAP_CONFIG_PASSWORD: ConfigLab05!
+      LDAP_BASE_DN: dc=lab,dc=local
+      LDAP_READONLY_USER: "true"
+      LDAP_READONLY_USER_USERNAME: readonly
+      LDAP_READONLY_USER_PASSWORD: ReadOnly05!
+    ports:
+      - "3886:389"
+    volumes:
+      - snipeit-i05-ldap-data:/var/lib/ldap
+      - snipeit-i05-ldap-config:/etc/ldap/slapd.d
+    healthcheck:
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost -b dc=lab,dc=local -D cn=admin,dc=lab,dc=local -w LdapLab05! cn=admin > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks:
+      - snipeit-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+
+  # ── Keycloak ───────────────────────────────────────────────────────────────
+  snipeit-i05-kc:
+    image: quay.io/keycloak/keycloak:24.0.3
+    container_name: snipeit-i05-kc
+    restart: unless-stopped
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: Admin05!
+      KC_HEALTH_ENABLED: "true"
+      KC_DB: dev-file
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8541:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/realms/master || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    networks:
+      - snipeit-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+  # ── WireMock — Odoo REST API mock ──────────────────────────────────────────
+  snipeit-i05-mock:
+    image: wiremock/wiremock:3.3.1
+    container_name: snipeit-i05-mock
+    restart: unless-stopped
+    command: >
+      --port=8080
+      --verbose
+      --global-response-templating
+    ports:
+      - "8762:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/__admin/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - snipeit-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+
+  # ── Mailhog ────────────────────────────────────────────────────────────────
+  snipeit-i05-mail:
+    image: mailhog/mailhog:latest
+    container_name: snipeit-i05-mail
     restart: unless-stopped
     ports:
-      - "80:$firstPort"
-    environment:
-      - IT_STACK_ENV=lab-05-integration
-      - KEYCLOAK_URL=
-      - DB_HOST=
-      - REDIS_HOST=
-      - SMTP_HOST=
-      - GRAYLOG_HOST=
-    extra_hosts:
-      - "lab-id1:10.0.50.11"
-      - "lab-db1:10.0.50.12"
-      - "lab-proxy1:10.0.50.15"
+      - "8741:8025"
     networks:
-      - it-stack-net
+      - snipeit-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.1"
 
+  # ── Snipe-IT ───────────────────────────────────────────────────────────────
+  snipeit-i05-app:
+    image: snipe/snipe-it:latest
+    container_name: snipeit-i05-app
+    restart: unless-stopped
+    depends_on:
+      snipeit-i05-db:
+        condition: service_healthy
+      snipeit-i05-ldap:
+        condition: service_healthy
+      snipeit-i05-mock:
+        condition: service_healthy
+    ports:
+      - "8441:80"
+    environment:
+      APP_KEY: base64:SnipeItLab05KeyABCDEFGHIJKLMNOP=
+      APP_URL: http://localhost:8441
+      DB_CONNECTION: mysql
+      DB_HOST: snipeit-i05-db
+      DB_PORT: "3306"
+      DB_DATABASE: snipeit
+      DB_USERNAME: snipeit
+      DB_PASSWORD: SnipeLab05!
+      MAIL_HOST: snipeit-i05-mail
+      MAIL_PORT: "1025"
+      LDAP_ENABLED: "true"
+      LDAP_SERVER: snipeit-i05-ldap
+      LDAP_PORT: "389"
+      LDAP_UNAME_FORMAT: uid=<username>,dc=lab,dc=local
+      LDAP_BASE_DN: dc=lab,dc=local
+      LDAP_USERNAME: cn=admin,dc=lab,dc=local
+      LDAP_PASSWORD: LdapLab05!
+      KEYCLOAK_URL: http://snipeit-i05-kc:8080
+      KEYCLOAK_REALM: it-stack
+      KEYCLOAK_CLIENT_ID: snipeit
+      # Odoo integration (via WireMock)
+      ODOO_URL: http://snipeit-i05-mock:8080
+      ODOO_DB: odoo
+      ODOO_USER: admin
+      ODOO_API_KEY: lab-odoo-key-05
+      ODOO_ASSET_MODEL: stock.inventory
+    volumes:
+      - snipeit-i05-data:/var/lib/snipeit
+      - snipeit-i05-logs:/var/www/html/storage/logs
+    networks:
+      - snipeit-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+# ── Networks ───────────────────────────────────────────────────────────────────
 networks:
-  it-stack-net:
+  snipeit-i05-net:
+    name: snipeit-i05-net
     driver: bridge
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+volumes:
+  snipeit-i05-db-data:
+  snipeit-i05-ldap-data:
+  snipeit-i05-ldap-config:
+  snipeit-i05-data:
+  snipeit-i05-logs:
