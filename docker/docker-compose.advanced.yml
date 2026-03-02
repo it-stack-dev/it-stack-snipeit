@@ -1,4 +1,169 @@
-# Lab 03 — Advanced Features: snipeit with TLS, resource limits, logging
+# Lab 03 — Advanced Features: Snipe-IT with Redis sessions + queue worker + resource limits
+# SESSION_DRIVER=redis · CACHE_DRIVER=redis · dedicated queue worker container
+# Snipe-IT: http://localhost:8421
+# Mailhog:  http://localhost:8721
+---
+name: it-stack-snipeit-lab03
+
+services:
+
+  # ── External Database ───────────────────────────────────────────────────
+  snipeit-a03-db:
+    image: mariadb:10.11
+    container_name: snipeit-a03-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: RootLab03!
+      MARIADB_DATABASE: snipeit
+      MARIADB_USER: snipeit
+      MARIADB_PASSWORD: SnipeLab03!
+    volumes:
+      - snipeit-a03-db-data:/var/lib/mysql
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "3"}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - snipeit-a03-net
+
+  # ── Redis (session cache + queue backend) ───────────────────────────
+  snipeit-a03-redis:
+    image: redis:7-alpine
+    container_name: snipeit-a03-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - snipeit-a03-redis-data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "3"}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - snipeit-a03-net
+
+  # ── SMTP relay (Mailhog) ─────────────────────────────────────────────
+  snipeit-a03-mail:
+    image: mailhog/mailhog:latest
+    container_name: snipeit-a03-mail
+    restart: unless-stopped
+    ports:
+      - "8721:8025"
+    networks:
+      - snipeit-a03-net
+
+  # ── Snipe-IT Application ─────────────────────────────────────────────
+  snipeit-a03-app:
+    image: snipe/snipe-it:latest
+    container_name: snipeit-a03-app
+    restart: unless-stopped
+    depends_on:
+      snipeit-a03-db: {condition: service_healthy}
+      snipeit-a03-redis: {condition: service_healthy}
+      snipeit-a03-mail: {condition: service_started}
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "false"
+      APP_KEY: "base64:3HLPbBKd9G4zWPKnQLxh4OTCKNWCGbSZFGbpfbpHPqk="
+      APP_URL: "http://localhost:8421"
+      DB_CONNECTION: mysql
+      DB_HOST: snipeit-a03-db
+      DB_PORT: "3306"
+      DB_DATABASE: snipeit
+      DB_USERNAME: snipeit
+      DB_PASSWORD: SnipeLab03!
+      MAIL_DRIVER: smtp
+      MAIL_HOST: snipeit-a03-mail
+      MAIL_PORT: "1025"
+      MAIL_ENCRYPTION: "null"
+      # Redis session + cache (Lab 03 advanced feature)
+      SESSION_DRIVER: redis
+      CACHE_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: snipeit-a03-redis
+      REDIS_PASSWORD: "null"
+      REDIS_PORT: "6379"
+    ports:
+      - "8421:80"
+    volumes:
+      - snipeit-a03-data:/var/lib/snipeit
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    logging:
+      driver: json-file
+      options: {max-size: "100m", max-file: "5"}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 8
+      start_period: 120s
+    networks:
+      - snipeit-a03-net
+
+  # ── Snipe-IT Queue Worker (new in Lab 03) ───────────────────────────
+  snipeit-a03-queue:
+    image: snipe/snipe-it:latest
+    container_name: snipeit-a03-queue
+    restart: unless-stopped
+    depends_on:
+      snipeit-a03-app: {condition: service_healthy}
+    entrypoint: ["/bin/sh", "-c", "cd /var/www/html && php artisan queue:work --sleep=3 --tries=3 --timeout=90"]
+    environment:
+      APP_ENV: local
+      APP_KEY: "base64:3HLPbBKd9G4zWPKnQLxh4OTCKNWCGbSZFGbpfbpHPqk="
+      APP_URL: "http://localhost:8421"
+      DB_CONNECTION: mysql
+      DB_HOST: snipeit-a03-db
+      DB_PORT: "3306"
+      DB_DATABASE: snipeit
+      DB_USERNAME: snipeit
+      DB_PASSWORD: SnipeLab03!
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: snipeit-a03-redis
+      REDIS_PORT: "6379"
+    volumes:
+      - snipeit-a03-data:/var/lib/snipeit
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "3"}
+    networks:
+      - snipeit-a03-net
+
+networks:
+  snipeit-a03-net:
+    driver: bridge
+
+volumes:
+  snipeit-a03-db-data:
+  snipeit-a03-redis-data:
+  snipeit-a03-data:
 ---
 services:
   snipeit:
