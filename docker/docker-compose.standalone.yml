@@ -1,29 +1,71 @@
-# Lab 01 — Standalone: Complete Snipe-IT IT asset management in isolation
-# No external dependencies required.
+# Lab 01 — Standalone: Snipe-IT IT asset management in isolation
+# Uses MariaDB as local database — no external dependencies required.
 ---
+name: it-stack-snipeit-lab01
+
 services:
-  snipeit:
-    image: snipe/snipe-it:latest
-    container_name: it-stack-snipeit
+
+  snipeit-s01-db:
+    image: mariadb:10.11
+    container_name: snipeit-s01-db
     restart: unless-stopped
-    ports:
-      - "80:$firstPort"
     environment:
-      - IT_STACK_ENV=lab-01-standalone
+      MARIADB_ROOT_PASSWORD: root_lab_password
+      MARIADB_DATABASE: snipeit
+      MARIADB_USER: snipeit
+      MARIADB_PASSWORD: snipeit_lab_password
     volumes:
-      - snipeit_data:/var/lib/snipeit
+      - snipeit-s01-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 60s
+    networks:
+      - snipeit-s01-net
+
+  snipeit-s01-app:
+    image: snipe/snipe-it:latest
+    container_name: snipeit-s01-app
+    restart: unless-stopped
+    depends_on:
+      snipeit-s01-db:
+        condition: service_healthy
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "false"
+      APP_KEY: "base64:3HLPbBKd9G4zWPKnQLxh4OTCKNWCGbSZFGbpfbpHPqk="
+      APP_URL: "http://localhost:8401"
+      DB_CONNECTION: mysql
+      DB_HOST: snipeit-s01-db
+      DB_PORT: 3306
+      DB_DATABASE: snipeit
+      DB_USERNAME: snipeit
+      DB_PASSWORD: snipeit_lab_password
+      DB_PREFIX: ""
+      MAIL_DRIVER: log
+      MAIL_PORT: 1025
+      MAIL_ENCRYPTION: "null"
+      SESSION_DRIVER: file
+      CACHE_DRIVER: file
+    ports:
+      - "8401:80"
+    volumes:
+      - snipeit-s01-data:/var/lib/snipeit
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
       interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      timeout: 15s
+      retries: 8
+      start_period: 120s
     networks:
-      - it-stack-net
+      - snipeit-s01-net
 
 networks:
-  it-stack-net:
+  snipeit-s01-net:
     driver: bridge
 
 volumes:
-  snipeit_data:
+  snipeit-s01-db-data:
+  snipeit-s01-data:

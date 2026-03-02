@@ -26,38 +26,69 @@ echo -e "${CYAN} Module: ${MODULE}${NC}"
 echo -e "${CYAN}======================================${NC}"
 echo ""
 
+SNIPEIT_URL="http://localhost:8401"
+NO_CLEANUP=${NO_CLEANUP:-0}
+
+cleanup() {
+    if [ "${NO_CLEANUP}" = "1" ]; then
+        info "NO_CLEANUP=1 — skipping teardown"
+    else
+        info "Phase 4: Cleanup"
+        docker compose -f "${COMPOSE_FILE}" down -v --remove-orphans 2>/dev/null || true
+        info "Cleanup complete"
+    fi
+}
+trap cleanup EXIT
+
+section() { echo -e "\n${CYAN}## $1${NC}"; }
+
 # ── PHASE 1: Setup ────────────────────────────────────────────────────────────
-info "Phase 1: Setup"
+section "Phase 1: Setup"
 docker compose -f "${COMPOSE_FILE}" up -d
-info "Waiting 30s for ${MODULE} to initialize..."
-sleep 30
+info "Waiting 120s for Snipe-IT to initialize (MariaDB + Laravel seed)..."
+sleep 120
 
 # ── PHASE 2: Health Checks ────────────────────────────────────────────────────
-info "Phase 2: Health Checks"
+section "Phase 2: Health Checks"
 
-if docker compose -f "${COMPOSE_FILE}" ps | grep -q "running\|Up"; then
-    pass "Container is running"
+if docker compose -f "${COMPOSE_FILE}" ps snipeit-s01-db 2>/dev/null | grep -q 'Up\|running'; then
+    pass "2.1 MariaDB (snipeit-s01-db) is up"
 else
-    fail "Container is not running"
+    fail "2.1 MariaDB is not running"
+fi
+
+if docker compose -f "${COMPOSE_FILE}" ps snipeit-s01-app 2>/dev/null | grep -q 'Up\|running'; then
+    pass "2.2 Snipe-IT app (snipeit-s01-app) is up"
+else
+    fail "2.2 Snipe-IT app is not running"
 fi
 
 # ── PHASE 3: Functional Tests ─────────────────────────────────────────────────
-info "Phase 3: Functional Tests (Lab 01 — Standalone)"
+section "Phase 3: Functional Tests"
 
-# TODO: Add module-specific functional tests here
-# Example:
-# if curl -sf http://localhost:80/health > /dev/null 2>&1; then
-#     pass "Health endpoint responds"
-# else
-#     fail "Health endpoint not reachable"
-# fi
+# 3.1 Root URL responds
+HTTP_CODE=$(curl -o /dev/null -sw '%{http_code}' -L "${SNIPEIT_URL}/" 2>/dev/null || echo 000)
+if echo "${HTTP_CODE}" | grep -q '^[23]'; then
+    pass "3.1 Snipe-IT web UI accessible (HTTP ${HTTP_CODE})"
+else
+    fail "3.1 Snipe-IT web UI not accessible (HTTP ${HTTP_CODE})"
+fi
 
-warn "Functional tests for Lab 16-01 pending implementation"
+# 3.2 Response contains recognizable Snipe-IT content
+RESPONSE=$(curl -sfL "${SNIPEIT_URL}/" 2>/dev/null || echo '')
+if echo "${RESPONSE}" | grep -qi 'snipe\|laravel\|login\|asset'; then
+    pass "3.2 Response contains Snipe-IT application content"
+else
+    warn "3.2 Could not confirm Snipe-IT content in response (app may still be starting)"
+fi
 
-# ── PHASE 4: Cleanup ──────────────────────────────────────────────────────────
-info "Phase 4: Cleanup"
-docker compose -f "${COMPOSE_FILE}" down -v --remove-orphans
-info "Cleanup complete"
+# 3.3 Health endpoint
+HTTP_HEALTH=$(curl -o /dev/null -sw '%{http_code}' "${SNIPEIT_URL}/health" 2>/dev/null || echo 000)
+if echo "${HTTP_HEALTH}" | grep -q '^[23]'; then
+    pass "3.3 Health endpoint responds (HTTP ${HTTP_HEALTH})"
+else
+    warn "3.3 Health endpoint not available (HTTP ${HTTP_HEALTH}) — may not be implemented"
+fi
 
 # ── Results ───────────────────────────────────────────────────────────────────
 echo ""
