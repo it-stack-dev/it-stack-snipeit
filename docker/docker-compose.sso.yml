@@ -1,34 +1,191 @@
-# Lab 04 — SSO Integration: snipeit with Keycloak OIDC authentication
----
-services:
-  snipeit:
-    image: snipe/snipe-it:latest
-    container_name: it-stack-snipeit
-    restart: unless-stopped
-    ports:
-      - "80:$firstPort"
-    environment:
-      - IT_STACK_ENV=lab-04-sso
-      - KEYCLOAK_URL=
-      - KEYCLOAK_REALM=
-      - KEYCLOAK_CLIENT_ID=snipeit
-      - KEYCLOAK_CLIENT_SECRET=
-    networks:
-      - it-stack-net
+# =============================================================================
+# IT-Stack: Snipe-IT — Lab 04: SSO Integration
+# Module 16 · Phase 4 · Lab 04
+# =============================================================================
+# Services: MariaDB · OpenLDAP · Keycloak · Mailhog · Snipe-IT
+# Ports:    App:8431  Keycloak:8531  LDAP:3896  Mailhog:8731
+# Credentials:
+#   DB root:    RootLab04!
+#   Snipe-IT DB: snipeit / SnipeLab04!
+#   Snipe-IT UI: admin / Admin04!
+#   Keycloak:   admin / Admin04!
+#   LDAP admin: cn=admin,dc=lab,dc=local / LdapLab04!
+# What's new vs Lab 03:
+#   + OpenLDAP directory for LDAP authentication
+#   + Keycloak 24 dev-mode as SAML/OIDC IdP (it-stack realm)
+#   + Snipe-IT LDAP env vars (LDAP_*)
+#   + Keycloak SAML metadata endpoint tested in Lab 04
+# =============================================================================
 
-  # Local Keycloak for SSO lab (replace with lab-id1 in real env)
-  keycloak:
-    image: quay.io/keycloak/keycloak:24
-    container_name: it-stack-snipeit-keycloak
+name: it-stack-snipeit-lab04
+
+services:
+
+  # ── MariaDB ────────────────────────────────────────────────────────────────
+  snipeit-s04-db:
+    image: mariadb:10.11
+    container_name: snipeit-s04-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: RootLab04!
+      MYSQL_DATABASE: snipeit
+      MYSQL_USER: snipeit
+      MYSQL_PASSWORD: SnipeLab04!
+    volumes:
+      - snipeit-s04-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-pRootLab04!", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks:
+      - snipeit-s04-net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  # ── OpenLDAP ───────────────────────────────────────────────────────────────
+  snipeit-s04-ldap:
+    image: osixia/openldap:1.5.0
+    container_name: snipeit-s04-ldap
+    restart: unless-stopped
+    environment:
+      LDAP_ORGANISATION: "IT-Stack Lab"
+      LDAP_DOMAIN: lab.local
+      LDAP_ADMIN_PASSWORD: LdapLab04!
+      LDAP_CONFIG_PASSWORD: ConfigLab04!
+      LDAP_BASE_DN: dc=lab,dc=local
+      LDAP_READONLY_USER: "true"
+      LDAP_READONLY_USER_USERNAME: readonly
+      LDAP_READONLY_USER_PASSWORD: ReadOnly04!
+    ports:
+      - "3896:389"
+    volumes:
+      - snipeit-s04-ldap-data:/var/lib/ldap
+      - snipeit-s04-ldap-config:/etc/ldap/slapd.d
+    healthcheck:
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost -b dc=lab,dc=local -D cn=admin,dc=lab,dc=local -w LdapLab04! cn=admin > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks:
+      - snipeit-s04-net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+
+  # ── Keycloak ───────────────────────────────────────────────────────────────
+  snipeit-s04-kc:
+    image: quay.io/keycloak/keycloak:24.0.3
+    container_name: snipeit-s04-kc
+    restart: unless-stopped
     command: start-dev
     environment:
       KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_ADMIN_PASSWORD: Admin04!
+      KC_HEALTH_ENABLED: "true"
+      KC_DB: dev-file
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
     ports:
-      - "8080:8080"
+      - "8531:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/realms/master || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
     networks:
-      - it-stack-net
+      - snipeit-s04-net
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
 
+  # ── Mailhog ────────────────────────────────────────────────────────────────
+  snipeit-s04-mail:
+    image: mailhog/mailhog:latest
+    container_name: snipeit-s04-mail
+    restart: unless-stopped
+    ports:
+      - "8731:8025"
+    networks:
+      - snipeit-s04-net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.1"
+
+  # ── Snipe-IT ───────────────────────────────────────────────────────────────
+  snipeit-s04-app:
+    image: snipe/snipe-it:latest
+    container_name: snipeit-s04-app
+    restart: unless-stopped
+    depends_on:
+      snipeit-s04-db:
+        condition: service_healthy
+      snipeit-s04-ldap:
+        condition: service_healthy
+    ports:
+      - "8431:80"
+    environment:
+      MYSQL_PORT_3306_TCP_ADDR: snipeit-s04-db
+      MYSQL_PORT_3306_TCP_PORT: "3306"
+      MYSQL_DATABASE: snipeit
+      MYSQL_USER: snipeit
+      MYSQL_PASSWORD: SnipeLab04!
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: base64:TaigaLab04KeyABCDEFGHIJKLMNOPQ=
+      APP_URL: http://localhost:8431
+      APP_TIMEZONE: UTC
+      APP_LOCALE: en-US
+      MAIL_DRIVER: smtp
+      MAIL_HOST: snipeit-s04-mail
+      MAIL_PORT: "1025"
+      MAIL_FROM_ADDR: snipeit@lab.local
+      MAIL_FROM_NAME: Snipe-IT
+      # LDAP configuration
+      LDAP_ENABLED: "true"
+      LDAP_SERVER: snipeit-s04-ldap
+      LDAP_PORT: "389"
+      LDAP_UNAME_FORMAT: uid=%s,ou=users,dc=lab,dc=local
+      LDAP_BASE_DN: dc=lab,dc=local
+      LDAP_USERNAME: cn=admin,dc=lab,dc=local
+      LDAP_PASSWORD: LdapLab04!
+      # Keycloak SAML IdP reference
+      KEYCLOAK_URL: http://snipeit-s04-kc:8080
+      KEYCLOAK_REALM: it-stack
+      KEYCLOAK_CLIENT_ID: snipeit
+    volumes:
+      - snipeit-s04-data:/var/lib/snipeit
+      - snipeit-s04-logs:/var/www/html/storage/logs
+    networks:
+      - snipeit-s04-net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+# ── Networks ───────────────────────────────────────────────────────────────────
 networks:
-  it-stack-net:
+  snipeit-s04-net:
+    name: snipeit-s04-net
     driver: bridge
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+volumes:
+  snipeit-s04-db-data:
+  snipeit-s04-ldap-data:
+  snipeit-s04-ldap-config:
+  snipeit-s04-data:
+  snipeit-s04-logs:
+
