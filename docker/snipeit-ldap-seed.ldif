@@ -1,0 +1,86 @@
+# =============================================================================
+# IT-Stack: Snipe-IT — Lab 05 LDAP seed data
+# INT-08b: Snipe-IT ↔ Keycloak SAML 2.0
+# FreeIPA-style tree: cn=accounts  →  cn=users,cn=accounts / cn=groups,cn=accounts
+# Users:  snipeadmin · snipeuser1 · snipeuser2  (pw: Lab05Password!)
+# Groups: cn=admins (snipeadmin)  ·  cn=snipeit-users (snipeuser1, snipeuser2)
+# =============================================================================
+
+# ── Organisational units ───────────────────────────────────────────────────
+dn: cn=accounts,dc=lab,dc=local
+objectClass: organizationalRole
+cn: accounts
+description: FreeIPA-style accounts container
+
+dn: cn=users,cn=accounts,dc=lab,dc=local
+objectClass: organizationalRole
+cn: users
+description: User accounts
+
+dn: cn=groups,cn=accounts,dc=lab,dc=local
+objectClass: organizationalRole
+cn: groups
+description: Group accounts
+
+# ── Users ──────────────────────────────────────────────────────────────────
+dn: uid=snipeadmin,cn=users,cn=accounts,dc=lab,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+objectClass: posixAccount
+uid: snipeadmin
+cn: Snipe Admin
+sn: Admin
+givenName: Snipe
+mail: snipeadmin@lab.local
+uidNumber: 10001
+gidNumber: 10001
+homeDirectory: /home/snipeadmin
+userPassword: {SSHA}Lab05Password!encoded==
+description: Snipe-IT administrator account
+
+dn: uid=snipeuser1,cn=users,cn=accounts,dc=lab,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+objectClass: posixAccount
+uid: snipeuser1
+cn: Snipe User One
+sn: User One
+givenName: Snipe
+mail: snipeuser1@lab.local
+uidNumber: 10002
+gidNumber: 10001
+homeDirectory: /home/snipeuser1
+userPassword: {SSHA}Lab05Password!encoded==
+description: Snipe-IT standard user account 1
+
+dn: uid=snipeuser2,cn=users,cn=accounts,dc=lab,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+objectClass: posixAccount
+uid: snipeuser2
+cn: Snipe User Two
+sn: User Two
+givenName: Snipe
+mail: snipeuser2@lab.local
+uidNumber: 10003
+gidNumber: 10001
+homeDirectory: /home/snipeuser2
+userPassword: {SSHA}Lab05Password!encoded==
+description: Snipe-IT standard user account 2
+
+# ── Groups ─────────────────────────────────────────────────────────────────
+dn: cn=admins,cn=groups,cn=accounts,dc=lab,dc=local
+objectClass: groupOfNames
+cn: admins
+description: IT administrators with full Snipe-IT access
+member: uid=snipeadmin,cn=users,cn=accounts,dc=lab,dc=local
+
+dn: cn=snipeit-users,cn=groups,cn=accounts,dc=lab,dc=local
+objectClass: groupOfNames
+cn: snipeit-users
+description: Standard Snipe-IT users
+member: uid=snipeuser1,cn=users,cn=accounts,dc=lab,dc=local
+member: uid=snipeuser2,cn=users,cn=accounts,dc=lab,dc=local

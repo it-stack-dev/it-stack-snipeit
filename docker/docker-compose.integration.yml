@@ -2,16 +2,20 @@
 # IT-Stack: Snipe-IT — Lab 05: Advanced Integration
 # Module 16 · Phase 4 · Lab 05
 # =============================================================================
-# Services: MariaDB · OpenLDAP · Keycloak · WireMock (Odoo-mock) · Mailhog · Snipe-IT
+# Services: MariaDB · OpenLDAP · ldap-seed (init) · Keycloak · WireMock (Odoo-mock) · Mailhog · Snipe-IT
 # Ports:    App:8441  WireMock:8762  KC:8541  LDAP:3886  MH:8741
 # Credentials:
 #   DB root:  RootLab05!  app: snipeit / SnipeLab05!
-#   Keycloak: admin / Admin05!
-#   LDAP:     cn=admin,dc=lab,dc=local / LdapLab05!
-# What's new vs Lab 04:
+#   Keycloak: admin / Admin05!  realm: it-stack
+#   LDAP admin:   cn=admin,dc=lab,dc=local / LdapLab05!
+#   LDAP readonly: cn=readonly,dc=lab,dc=local / ReadOnly05!
+#   SAML client:  snipeit  (KC realm it-stack  ·  ACS: http://localhost:8441/saml2/it-stack/acs)
+# What's new vs Lab 04 (INT-08b additions):
+#   + snipeit-i05-ldap-seed init container populates FreeIPA-style LDAP tree
+#   + KC configured: realm it-stack, LDAP federation (snipeit-lab-ldap), SAML client snipeit
+#   + Snipe-IT SAML2_ENABLED + SAML2_IDP_METADATA_URL injected
 #   + WireMock 3.x simulates Odoo REST API (asset procurement flow)
-#   + Snipe-IT configured with ODOO_URL for asset sync
-#   + Integration tested: Snipe-IT → Odoo asset procurement REST API
+#   + Integration tested: SAML SSO flow, KC LDAP sync, Odoo REST API mock
 # =============================================================================
 
 name: it-stack-snipeit-lab05
@@ -75,12 +79,32 @@ services:
           memory: 256M
           cpus: "0.25"
 
+  # ── LDAP seed (init container — runs once, then exits) ─────────────────────
+  snipeit-i05-ldap-seed:
+    image: osixia/openldap:1.5.0
+    container_name: snipeit-i05-ldap-seed
+    restart: "no"
+    depends_on:
+      snipeit-i05-ldap:
+        condition: service_healthy
+    command: >
+      ldapadd -x -H ldap://snipeit-i05-ldap:389
+      -D cn=admin,dc=lab,dc=local -w LdapLab05!
+      -f /seed/snipeit-ldap-seed.ldif
+    volumes:
+      - ./snipeit-ldap-seed.ldif:/seed/snipeit-ldap-seed.ldif:ro
+    networks:
+      - snipeit-i05-net
+
   # ── Keycloak ───────────────────────────────────────────────────────────────
   snipeit-i05-kc:
     image: quay.io/keycloak/keycloak:24.0.3
     container_name: snipeit-i05-kc
     restart: unless-stopped
     command: start-dev
+    depends_on:
+      snipeit-i05-ldap-seed:
+        condition: service_completed_successfully
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: Admin05!
@@ -92,7 +116,7 @@ services:
     ports:
       - "8541:8080"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/realms/master || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready | grep -q UP || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 20
@@ -179,6 +203,12 @@ services:
       KEYCLOAK_URL: http://snipeit-i05-kc:8080
       KEYCLOAK_REALM: it-stack
       KEYCLOAK_CLIENT_ID: snipeit
+      # SAML2 integration (INT-08b)
+      SAML2_ENABLED: "true"
+      SAML2_IDP_METADATA_URL: http://snipeit-i05-kc:8080/realms/it-stack/protocol/saml/descriptor
+      SAML2_SP_ENTITY_ID: http://localhost:8441/saml2/it-stack/metadata
+      SAML2_SP_ACS_URL: http://localhost:8441/saml2/it-stack/acs
+      SAML2_AUTOLOAD_METADATA: "true"
       # Odoo integration (via WireMock)
       ODOO_URL: http://snipeit-i05-mock:8080
       ODOO_DB: odoo
