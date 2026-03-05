@@ -190,10 +190,3 @@ services:
         max-file: "5"
     networks:
       - it-stack-net
-
-networks:
-  it-stack-net:
-    driver: bridge
-
-volumes:
-  snipeit_data:
